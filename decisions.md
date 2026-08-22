@@ -95,7 +95,7 @@ interpolated segments.
 respond to the eraser. Segment-distance hit testing is the fix if it becomes
 annoying; it is ~15 more lines and was not worth it before seeing real strokes.
 
-## ADR-8 — An always-visible toolbar, reached by geometric passthrough
+## ADR-8 — An always-visible toolbar, reached by geometric passthrough *(see also ADR-10)*
 
 **Context.** ADR-3 left no dependable way out of drawing mode. What was needed
 was an on-screen control that keeps working while the plugin owns single-finger
@@ -140,6 +140,64 @@ the menu close. Stopping is the toolbar's job.
 **Consequences.** Slightly asymmetric menu. Correct, though: the menu is only
 usable in the state where drawing is off, so it should only offer the action
 that is valid in that state.
+
+## ADR-10 — The toolbar forwards input it does not want
+
+**Context.** ADR-8 assumed that sitting on top of the widget stack only affected
+what the bar *receives*. It also decides what everything else receives.
+`UIManager:sendEvent` offers an input event to exactly one window — the topmost
+non-toast one — and its fallback pass afterwards reaches only widgets flagged
+`is_always_active` or registered as someone's `active_widgets`. ReaderUI is
+neither, and neither is TouchMenu.
+
+So while the bar was up, it was the only thing on screen that could be touched.
+Page turns did nothing. Worse, showing the bar from the menu left the menu open
+and unclosable: tapping outside it is the only way to dismiss one, and those
+taps stopped at the bar. The only escape was Hide, which is what the bug report
+described.
+
+Drawing mode had the same hole one layer down: the `feedEvent` hook eats
+single-finger contacts before UIManager sees them at all, so an open menu stayed
+stuck even once the bar started forwarding.
+
+**Decision.** Two guards, one per layer.
+
+`InkBar:handleEvent` forwards to `self:windowBelow()` — the topmost non-toast
+window that is not the bar — but only for the four handlers that arrive through
+`sendEvent` (`onGesture`, `onKeyPress`, `onKeyRepeat`, `onKeyRelease`).
+Everything else is broadcast to every window already and would be delivered
+twice. `InkBar:onGesture` swallows gestures that land on the bar but miss every
+button, so its border and padding do not turn pages.
+
+`FingerInk:dialogOnTop` reports whether the window under the bar is something
+other than ReaderUI. When it is, `onTouchFrame` latches passthrough for the
+contact sequence instead of inking, so any menu or dialog can always be
+dismissed. It re-latches per sequence, so drawing resumes on its own once the
+dialog is gone.
+
+**Consequences.**
+
+- Reading with the bar shown works: taps, swipes and hardware keys all reach the
+  reader.
+- Forwarding returns the callee's own result rather than a blanket `true`, so
+  UIManager's `is_always_active` / `active_widgets` pass still runs on a miss.
+  A widget below that is itself always-active may see one unhandled event twice;
+  it returned false the first time, so the second changes nothing.
+- Reaches into `UIManager._window_stack`. It is private by name only — stable
+  across releases and already poked at by plugins — but it is the one part of
+  this that a KOReader refactor could break.
+- Drawing yields entirely while a dialog is up. Deliberate: an undismissable
+  dialog is a worse failure than a dropped stroke.
+
+Rejected: making the bar a `toast`. Toasts do pass input through, which is half
+of what is wanted, but they can never consume it — the bar's own buttons would
+have fired *and* turned a page underneath.
+
+Rejected: dropping the window entirely and painting the bar from `paintTo` with
+ReaderUI touch zones for input. Architecturally the tidiest, and how ReaderFooter
+does it, but the zones have to name every reader zone they override
+(`tap_forward`, `readerhighlight_tap`, and so on) — a brittle list, for a bigger
+change than the bug warrants.
 
 ## Deferred
 
