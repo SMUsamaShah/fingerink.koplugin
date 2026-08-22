@@ -8,6 +8,7 @@ fingerink.koplugin/
   main.lua         plugin object: state machine, menu, persistence, paintTo
   ink_bar.lua      always-reachable side toolbar widget
   ink_capture.lua  GestureDetector:feedEvent wrapper + rotation transform
+  ink_pdf.lua      writing stored ink out as PDF ink annotations
   ink_render.lua   allocation-free segment/stroke rasterisation
   ink_store.lua    per-page stroke list, hit test
 ```
@@ -77,15 +78,35 @@ from every path that changes `drawing` or `eraser`.
 
 ### Reachability
 
-Three rules together guarantee the bar is always usable:
+Four rules together guarantee the bar is always usable, and that having it up
+never costs the reader its own input:
 
 1. `setDrawing(true)` shows the bar first if it is hidden.
 2. `setBarShown(false)` calls `setDrawing(false)` first.
 3. A contact whose **first** point falls inside `bar.dimen` latches
    `passthrough`, so GestureDetector produces the tap and the Button fires.
+4. `InkBar:handleEvent` forwards input the bar did not want to
+   `self:windowBelow()`, the topmost non-toast window that is not the bar.
 
-Rules 1 and 2 make "drawing on, no bar" unreachable. Rule 3 makes the bar
-work while every other single-finger touch is being consumed.
+Rules 1 and 2 make "drawing on, no bar" unreachable. Rule 3 makes the bar work
+while every other single-finger touch is being consumed.
+
+Rule 4 exists because `UIManager:sendEvent` offers an input event to exactly one
+window, the topmost non-toast one, and its follow-up pass reaches only
+`is_always_active` and `active_widgets` widgets — which neither ReaderUI nor
+TouchMenu is. Without forwarding, the bar being up meant nothing else on screen
+responded to touch at all. Only the four handlers that arrive through
+`sendEvent` are forwarded (`onGesture`, `onKeyPress`, `onKeyRepeat`,
+`onKeyRelease`); everything else is broadcast to every window already. A gesture
+that lands on the bar but misses every button is swallowed rather than
+forwarded, so the bar's border does not turn pages.
+
+The same hole exists one layer down, since `feedEvent` eats single-finger
+contacts before UIManager sees them. `FingerInk:dialogOnTop` reports whether the
+window under the bar is something other than ReaderUI; while it is,
+`onTouchFrame` latches `passthrough` instead of inking, so an open menu or
+dialog can always be dismissed. It re-latches per contact sequence, so drawing
+resumes by itself once the dialog is gone.
 
 A stroke that starts off the bar and is **dragged onto** it is ended at the
 edge and the contact is parked at `draw_slot = SUSPENDED` (-1) until it lifts,
@@ -97,7 +118,8 @@ once from screen dimensions.
 ## Stroke data
 
 ```lua
-stroke = { n = <point count>, w = <pen width px>, x1, y1, x2, y2, ... }
+stroke = { n = <point count>, w = <pen width px>, t = <transform>, x1, y1, ... }
+transform = { z = <zoom>, x = <offset>, y = <offset> }   -- or absent
 ```
 
 Flat number array, two slots per point. No per-point table. Serialises
@@ -109,6 +131,22 @@ pages = { [17] = { stroke, stroke }, [23] = { stroke } }
 
 Coordinates are absolute screen pixels. `paintTo` therefore ignores its `x, y`
 arguments — ReaderView is full-screen, so the view origin is always `0, 0`.
+
+`t` is written once per stroke by `endStroke`, from `FingerInk:pageTransform`,
+and is only read when saving into a PDF. It inverts
+`ReaderView:getSinglePagePosition`:
+
+```lua
+page_x = (screen_x + t.x) / t.z    -- t.x = visible_area.x - state.offset.x
+page_y = (screen_y + t.y) / t.z    -- t.z = state.zoom
+```
+
+Recording it per stroke rather than reading the live view state at save time is
+what makes whole-document export correct: zoom and offset differ per page, and
+the view may have been zoomed or panned since the stroke was drawn.
+`pageTransform` returns nil, and `t` is absent, for views whose coordinates do
+not map onto a PDF page at all: reflowable documents, reflowed PDFs, scroll
+mode, and rotated pages.
 
 ## Rendering
 
@@ -135,6 +173,39 @@ an unerasable middle. Accepted for v1.
 `onSaveSettings` writes `pages` to `doc_settings`, or deletes the key when
 empty. No write on every stroke.
 
+## Saving into PDF
+
+`ink_pdf.lua` turns stored strokes into native PDF ink annotations
+(`/Subtype /Ink`) via koreader-base's `page:addInkAnnotation(strokes, colour,
+width, opacity)`, which also calls `pdf_update_annot` to synthesise the `/Rect`
+and `/AP` appearance stream desktop viewers need. `fz_run_page` draws
+annotations, so saved ink renders as part of the page from then on.
+
+`InkPdf.save(ui, store, pages)` returns `written, skipped`, or `nil, reason`.
+
+1. `InkPdf.blocker` rejects non-PDF and non-writable documents up front.
+2. Each page's strokes are converted through their own `t` and bucketed by line
+   width, since border width belongs to the annotation rather than to each ink
+   list inside it. A page emits one annotation per pen width, not one per
+   stroke. Strokes with no `t` are counted as skipped and left alone.
+3. `doc:writeDocument()` writes the file. Same filename, so MuPDF appends an
+   incremental update instead of rewriting.
+4. Only then do saved strokes leave the store, followed by
+   `resetTileCacheValidity()`.
+
+Order matters: nothing is dropped until the file has been written, so a failure
+anywhere loses no ink.
+
+The write is immediate rather than setting `is_edited` and leaving it to
+`PdfDocument:close`, because `ReaderUI:closeDocument` discards pending document
+edits unless the unrelated `highlight_write_into_pdf` setting is on.
+
+Saving is one way. koreader-base exposes ink setters but no getters, and
+`getEmbeddedAnnotations` filters to markup types 8-11, so a saved annotation
+cannot be found again or read back. Dropping saved strokes from the store is
+also what stops `paintTo` painting them a second time over what MuPDF now
+renders.
+
 ## Lifecycle
 
 `onCloseDocument`, `onCloseWidget` and `onSuspend` all call `Capture:remove()`.
@@ -150,6 +221,8 @@ Top menu → Finger Ink:
 - Toolbar side: left / right
 - Pen width: thin (2) / medium (4) / thick (7)
 - Fast refresh while drawing (toggle, default on)
+- Save this page into PDF
+- Save whole document into PDF (confirms first)
 - Clear this page
 - Clear whole document
 

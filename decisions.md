@@ -199,6 +199,69 @@ does it, but the zones have to name every reader zone they override
 (`tap_forward`, `readerhighlight_tap`, and so on) — a brittle list, for a bigger
 change than the bug warrants.
 
+## ADR-11 — Ink can be written into the PDF, one way, on request
+
+**Context.** PDF has a native freehand annotation (`/Subtype /Ink`), and
+koreader-base already exposes MuPDF's constructor for it:
+`page:addInkAnnotation(strokes, colour, width, opacity)` in `ffi/mupdf.lua`.
+It calls `pdf_update_annot` afterwards, which synthesises the `/Rect` and `/AP`
+appearance stream that desktop viewers need in order to show the annotation at
+all. The C wrapper and the cdecls are both in place. `PdfDocument:writeDocument`
+passes `do_incremental = 1` when the target is the file already open, so saving
+appends rather than rewriting.
+
+So the expensive parts already exist. What was missing was the coordinates, a
+trigger, and knowing what to do with the strokes afterwards.
+
+**Decision.** A menu action, per page or per document, not a write on every
+stroke. Three things fall out of that.
+
+*Coordinates.* ADR-5 stores screen pixels, and `ReaderView:getSinglePagePosition`
+divides out zoom and pan to get page coordinates — but using the *current* view
+state only works for the page on screen, at the zoom it was drawn at. So every
+stroke now records the mapping in force when it was drawn, as `s.t = {z, x, y}`
+with `page = (screen + t) / t.z`. Whole-document export then converts each page
+correctly even though zoom and offset differ per page. `FingerInk:pageTransform`
+returns nil for the views that have no page mapping at all (reflowable
+documents, reflowed PDFs, scroll mode, rotated pages); those strokes are counted
+as skipped and left alone rather than being placed wrongly.
+
+*Writing immediately.* `ReaderUI:closeDocument` discards pending document edits
+on close unless `highlight_write_into_pdf` happens to be set, so setting
+`is_edited` and leaving it to `PdfDocument:close` would make ink survival depend
+on an unrelated highlight setting. `InkPdf.save` calls `writeDocument` itself and
+never touches `is_edited`.
+
+*One way.* koreader-base exposes ink *setters* only — no `ink_list` getters, and
+`getEmbeddedAnnotations` filters to markup types 8-11, so ink is invisible to it.
+A saved annotation cannot be found again or read back. Saved strokes therefore
+leave the store, which is also what stops `paintTo` painting them a second time
+on top of what MuPDF now renders.
+
+**Consequences.**
+
+- Ink saved this way opens in Acrobat, Preview, and anything else. This is the
+  answer to "the ink is only visible in KOReader".
+- Saving is irreversible from inside the plugin: no undo, no eraser. The menu
+  says so and the whole-document action confirms first.
+- Strokes are bucketed by line width, so a page emits one annotation per pen
+  width rather than one per stroke. Border width is a property of the
+  annotation, not of each ink list inside it.
+- Nothing leaves the store until `writeDocument` has returned, so a failure
+  anywhere loses no ink. On failure the in-memory document does keep the
+  annotations until the book is closed, which can double-draw a page until then.
+- `writeDocument` flushes *everything* pending on the document, so a user with
+  unsaved highlights and `highlight_write_into_pdf` off will have those written
+  too. Obscure, and hard to avoid without reimplementing the save.
+- `_checkIfWritable` is private by name but ReaderHighlight already calls it.
+- Which KOReader release first shipped `addInkAnnotation` is unverified, so the
+  page object is probed for it and the action fails with a clear message rather
+  than a crash on an older build.
+
+Rejected: writing an annotation per finished stroke. Each one costs an
+incremental append to the file, which on a Kindle turns a page of handwriting
+into hundreds of writes.
+
 ## Deferred
 
 - Scroll view mode (`paintTo` offset and page identity both change).
@@ -207,3 +270,7 @@ change than the bug warrants.
 - Save-on-stroke instead of `onSaveSettings`, if crash loss turns out to matter.
 - Draggable toolbar (`MovableContainer`) if the fixed centred position gets in
   the way of a particular book's layout.
+- Repainting ink through `s.t` rather than in raw screen pixels, which would fix
+  ADR-5's zoom problem for PDFs now that the transform is stored anyway.
+- Colour and per-stroke opacity for saved ink; `addInkAnnotation` takes both,
+  the plugin only ever draws black.

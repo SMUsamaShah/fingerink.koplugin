@@ -16,9 +16,11 @@ local UIManager = require("ui/uimanager")
 local WidgetContainer = require("ui/widget/container/widgetcontainer")
 local logger = require("logger")
 local _ = require("gettext")
+local T = require("ffi/util").template
 
 local Capture = require("ink_capture")
 local InkBar = require("ink_bar")
+local InkPdf = require("ink_pdf")
 local Render = require("ink_render")
 local Store = require("ink_store")
 
@@ -176,6 +178,31 @@ end
 
 function FingerInk:currentPage()
     return self.view.state.page or 1
+end
+
+--[[--
+The screen-to-page mapping in force right now, or nil if this view has none.
+
+`page = (screen + t) / t.z`, the inverse of ReaderView:getSinglePagePosition.
+Recorded with every stroke so that ink can be turned into PDF page coordinates
+later on — whatever the view has been zoomed or panned to since, and for pages
+other than the one on screen, whose zoom and offset differ. See ADR-11.
+
+nil for the views whose coordinates do not map back to a PDF page at all:
+reflowable documents, reflowed PDFs, scroll mode and rotated pages.
+]]
+function FingerInk:pageTransform()
+    local doc = self.ui.document
+    if not doc.is_pdf or not self.ui.paging then return end
+    if self.view.page_scroll then return end
+    if doc.configurable and doc.configurable.text_wrap == 1 then return end
+
+    local state = self.view.state
+    if state.rotation ~= 0 then return end
+
+    local area, offset = self.view.visible_area, state.offset
+    if not area or not offset then return end
+    return { z = state.zoom, x = area.x - offset.x, y = area.y - offset.y }
 end
 
 function FingerInk:setDrawing(on)
@@ -343,6 +370,7 @@ function FingerInk:endStroke()
         Render.stroke(Screen.bb, s, 0, 0, INK)
         self:refreshBox(s[1], s[2], s[1], s[2], s.w)
     end
+    s.t = self:pageTransform()
     self.store:add(self:currentPage(), s)
 end
 
@@ -375,8 +403,8 @@ function FingerInk:paintTo(bb, x, y)
     end
 end
 
-function FingerInk:repaint()
-    UIManager:setDirty(self.ui, "ui")
+function FingerInk:repaint(refresh)
+    UIManager:setDirty(self.ui, refresh or "ui")
 end
 
 --- DU refresh over the padded bounding box of one segment, clamped to screen.
@@ -411,6 +439,32 @@ function FingerInk:onFingerInkUndo()
     end
     self:repaint()
     return true
+end
+
+--[[--
+Hand the ink on `pages` to the PDF and say what happened.
+
+Strokes drawn in a view that does not map onto a page are counted as skipped
+and stay in the store, so nothing is silently lost.
+]]
+function FingerInk:saveInk(pages)
+    local written, skipped = InkPdf.save(self.ui, self.store, pages)
+    if written == nil then
+        self:notify(skipped)   -- on failure the second value is the reason
+        return
+    end
+    if written == 0 then
+        self:notify(skipped > 0
+            and _("This ink cannot be placed on a page, nothing saved")
+            or _("No ink to save"))
+        return
+    end
+
+    -- The ink is drawn by MuPDF now, so the whole page has to come back.
+    self:repaint("full")
+    self:notify(skipped > 0
+        and T(_("Saved %1 strokes into the PDF, %2 skipped"), written, skipped)
+        or T(_("Saved %1 strokes into the PDF"), written))
 end
 
 function FingerInk:setPenWidth(w)
@@ -488,6 +542,36 @@ function FingerInk:addToMainMenu(menu_items)
                 end,
                 help_text = _([[On: strokes appear with the DU waveform — quick, but grainy and it leaves ghosting until the next page turn. Off: slower, cleaner.]]),
                 separator = true,
+            },
+            {
+                text = _("Save this page into PDF"),
+                keep_menu_open = true,
+                callback = function()
+                    self:saveInk({ self:currentPage() })
+                end,
+                help_text = _([[Writes the ink as a real PDF ink annotation, so it shows up in any PDF reader rather than only here. It stops being Finger Ink's, so it can no longer be undone or erased with the eraser — clear it in a PDF editor instead.]]),
+            },
+            {
+                text = _("Save whole document into PDF"),
+                keep_menu_open = true,
+                separator = true,
+                callback = function()
+                    local blocked = InkPdf.blocker(self.ui)
+                    if blocked then
+                        self:notify(blocked)
+                        return
+                    end
+                    local pages = self.store:pageList()
+                    if #pages == 0 then
+                        self:notify(_("No ink in this document"))
+                        return
+                    end
+                    UIManager:show(ConfirmBox:new{
+                        text = _("Write all ink into the PDF? It becomes a normal annotation and can no longer be undone or erased here."),
+                        ok_text = _("Save"),
+                        ok_callback = function() self:saveInk(pages) end,
+                    })
+                end,
             },
             {
                 text = _("Clear this page"),

@@ -45,12 +45,27 @@ it, and hiding it stops drawing.
 
 Ink is saved into the book's sidecar, per page, when KOReader flushes settings.
 
+## Saving ink into the PDF
+
+Menu → **Save this page into PDF** or **Save whole document into PDF** writes
+the ink as a real PDF ink annotation (`/Subtype /Ink`), appearance stream and
+all. It then opens in Acrobat, Preview, or anything else — not only in KOReader.
+The file is updated incrementally, so this stays quick on a large PDF.
+
+This is one way. Saved ink becomes an ordinary annotation and is no longer the
+plugin's, so Undo and the eraser cannot touch it; remove it in a PDF editor
+instead. The whole-document action asks first.
+
+Strokes drawn in a view that has no mapping back onto the page — scroll mode, a
+reflowed PDF, a rotated page — are reported as skipped and left in the sidecar
+rather than being placed in the wrong spot.
+
 ## Menu and gestures
 
 Top menu → More tools → Finger Ink: start drawing, show/hide the toolbar, put
-it on the left instead, pen width, refresh quality, clear page, clear document.
-"Start drawing" closes the menu on purpose — an open menu is useless once
-single-finger taps are going to ink.
+it on the left instead, pen width, refresh quality, save into PDF, clear page,
+clear document. "Start drawing" closes the menu on purpose — an open menu is
+useless once single-finger taps are going to ink.
 
 Optional Gesture Manager actions: *toggle drawing*, *toggle eraser*, *undo
 stroke*, *toggle toolbar*. A two-finger tap is a good fit for any of them,
@@ -70,6 +85,9 @@ since two-finger gestures keep working while drawing.
   A palm landing as a second contact cancels the stroke in progress.
 - The toolbar takes about 15% of the screen width. Hide it when you are just
   reading.
+- Saving into PDF needs a KOReader whose koreader-base has
+  `page:addInkAnnotation`. On an older build the menu action says so rather than
+  failing obscurely, and the ink stays in the sidecar.
 
 ## Tests
 
@@ -77,11 +95,17 @@ since two-finger gestures keep working while drawing.
 luajit test.lua
 ```
 
-Covers rasterisation, the stroke store and hit test, the rotation transform, the
-`feedEvent` wrapper, the one/two-finger arbitration state machine, and toolbar
-reachability — that a tap starting on the bar passes through and inks nothing,
-and that a stroke dragged onto it is truncated rather than painted over the
-buttons. Nothing that needs a running KOReader.
+Runs against stubbed KOReader modules, so nothing needs a running KOReader.
+
+Covers toolbar input forwarding (a tap on the page reaches the reader or an open
+menu, a tap on a button does not leak past it, broadcast events are not
+forwarded twice) and PDF ink export (screen-to-page conversion, bucketing by pen
+width, unmappable strokes skipped rather than misplaced, and that a failed write
+loses no ink).
+
+Not yet covered: rasterisation, the stroke store and hit test, the rotation
+transform, the `feedEvent` wrapper, and the one/two-finger arbitration state
+machine.
 
 ## Docs
 
