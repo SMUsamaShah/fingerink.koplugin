@@ -156,6 +156,18 @@ function FingerInk:inBar(x, y)
     return self.bar ~= nil and self.bar:contains(x, y)
 end
 
+--[[--
+True while a menu or dialog is open over the reader.
+
+Drawing mode eats single-finger touches before UIManager ever sees them, which
+would otherwise make an open menu impossible to dismiss — tapping outside it is
+the only way to close one. So drawing yields for as long as one is up.
+]]
+function FingerInk:dialogOnTop()
+    local below = self.bar and self.bar:windowBelow()
+    return below ~= nil and below ~= self.ui
+end
+
 -- ------------------------------------------------------------------- state
 
 function FingerInk:notify(text)
@@ -223,6 +235,13 @@ Called on every touch frame while drawing mode is on, before GestureDetector
 sees it. Returns true if the frame's gesture events should reach the app.
 ]]
 function FingerInk:onTouchFrame(slots)
+    if not self.passthrough and self:dialogOnTop() then
+        -- Latches for the whole contact sequence, and re-latches on the next
+        -- one, so drawing resumes by itself once the dialog is gone.
+        self.passthrough = true
+        self:abortStroke()
+    end
+
     local was_passthrough = self.passthrough
 
     for i = 1, #slots do
