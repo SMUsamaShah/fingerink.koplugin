@@ -1,6 +1,6 @@
 # Finger Ink
 
-![demo](demo.mp4)
+https://github.com/user-attachments/assets/66a1f825-9707-4755-bf09-310789dac2b5
 
 Draw on book pages with your **finger** in KOReader, on e-readers that have no
 stylus — Kindle Paperwhite included.
