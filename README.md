@@ -1,5 +1,7 @@
 # Finger Ink
 
+https://github.com/user-attachments/assets/66a1f825-9707-4755-bf09-310789dac2b5
+
 Draw handwritten notes on KOReader pages with your finger. Designed for touch
 e-readers without a stylus, including Kindle Paperwhite.
 
