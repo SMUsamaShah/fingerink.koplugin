@@ -2,7 +2,15 @@
 Per-page stroke storage.
 
 pages = { [page] = { stroke, stroke, ... } }
-stroke = { n = <points>, w = <width>, x1, y1, x2, y2, ... }
+stroke = { n = <points>, w = <width>, t = <transform>,
+           pdf_block = <reason>, x1, y1, x2, y2, ... }
+
+`t` is the screen-to-page mapping in force when the stroke was drawn,
+`{ z = zoom, x = , y = }`, used to turn the stroke into PDF page coordinates
+later. See FingerInk:pageTransform. It is absent for strokes drawn in a view
+that has no safe page mapping (for example reflow, rotation, or a stroke across
+a page gap). `pdf_block` records why so the save notice can explain the remedy;
+old strokes without either field are reported as legacy ink.
 
 This table goes straight into the document sidecar, so it must stay made of
 plain numbers and plain tables.
@@ -60,6 +68,16 @@ end
 
 function Store:isEmpty()
     return next(self.pages) == nil
+end
+
+--- Page numbers that hold ink, ascending.
+function Store:pageList()
+    local pages = {}
+    for page in pairs(self.pages) do
+        pages[#pages + 1] = page
+    end
+    table.sort(pages)
+    return pages
 end
 
 function Store:countPages()
