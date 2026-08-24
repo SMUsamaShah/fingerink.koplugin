@@ -2,11 +2,39 @@
 
 https://github.com/user-attachments/assets/66a1f825-9707-4755-bf09-310789dac2b5
 
-Draw on book pages with your **finger** in KOReader, on e-readers that have no
-stylus — Kindle Paperwhite included.
+Finger Ink is a KOReader plugin for writing handwritten notes directly on a
+book page with your finger. It is intended for touch e-readers that do not have
+a stylus, including Kindle Paperwhite devices.
 
-Built against KOReader **v2026.03**. No core files are patched; it is a plain
+The plugin has two separate jobs:
+
+1. **Draw ink while you read.** Your strokes appear over the page and are saved
+   in the book's KOReader sidecar data, so you can undo or erase them later.
+2. **Export ink into a PDF.** A menu action converts the strokes into native
+   PDF ink annotations. The result is visible in Acrobat, Preview, and other
+   PDF readers—not only in KOReader.
+
+PDF export is optional and one-way: after a stroke is written into the PDF, it
+is no longer managed by Finger Ink, so the plugin cannot undo or erase it. Use a
+PDF editor to remove exported annotations.
+
+Basic drawing was built against KOReader **v2026.03**. PDF export requires
+KOReader **v2026.07 or newer**, because that release added the native ink-writing
+API used by the plugin. No KOReader core files are patched; this is a plain
 drop-in plugin folder.
+
+## At a glance
+
+| Task | How it works |
+| --- | --- |
+| Handwrite on any supported book | Turn on drawing and use one finger |
+| Undo or erase while reading | Use the toolbar before exporting |
+| Keep ink KOReader-only and editable | Leave it in the sidecar |
+| Make ink visible in other PDF readers | Choose **Save this page into PDF** or **Save whole document into PDF** |
+
+For the most predictable PDF export, use page view. Continuous PDF view is also
+supported when each stroke stays within one page; a stroke crossing the gap
+between pages is left in the sidecar and reported to you.
 
 ## Install
 
@@ -44,6 +72,7 @@ You can never end up drawing with no toolbar on screen: starting to draw shows
 it, and hiding it stops drawing.
 
 Ink is saved into the book's sidecar, per page, when KOReader flushes settings.
+This is the editable working copy used by Finger Ink.
 
 ## Saving ink into the PDF
 
@@ -56,9 +85,9 @@ This is one way. Saved ink becomes an ordinary annotation and is no longer the
 plugin's, so Undo and the eraser cannot touch it; remove it in a PDF editor
 instead. The whole-document action asks first.
 
-Strokes drawn in a view that has no safe mapping back onto one page — a
-reflowed PDF, a rotated page, or across a page gap — are reported as skipped and
-left in the sidecar rather than being placed in the wrong spot.
+Strokes that cannot be mapped safely back onto one PDF page—such as ink drawn
+while reflow is enabled, on a rotated page, or across a page gap—are left in the
+sidecar and reported with instructions for correcting the problem.
 
 ## Menu and gestures
 
@@ -73,11 +102,10 @@ since two-finger gestures keep working while drawing.
 
 ## Known limits
 
-- **Set your layout before you write.** Strokes are stored in screen
-  coordinates against a page number, so changing font size, margins or rotation
-  in an EPUB moves the text and leaves the ink behind. Same caveat
-  `pencil.koplugin` carries.
-- Single-page view only. Scroll mode is not handled.
+- **Set your layout before you write.** For reflowable books such as EPUBs,
+  changing font size, margins, or rotation after writing can move the text while
+  leaving the ink behind. This is the same caveat carried by
+  `pencil.koplugin`.
 - Fast refresh uses the DU waveform: grainy, and ghosting builds up until the
   next page turn. Turn it off in the menu if you would rather have clean strokes
   slowly.
@@ -85,9 +113,9 @@ since two-finger gestures keep working while drawing.
   A palm landing as a second contact cancels the stroke in progress.
 - The toolbar takes about 15% of the screen width. Hide it when you are just
   reading.
-- Saving into PDF needs a KOReader whose koreader-base has
-  `page:addInkAnnotation`. On an older build the menu action says so rather than
-  failing obscurely, and the ink stays in the sidecar.
+- PDF export requires KOReader 2026.07 or newer. If the native PDF-writing API
+  is unavailable, the plugin explains that you need to update KOReader and
+  leaves the ink in the sidecar.
 
 ## Tests
 
