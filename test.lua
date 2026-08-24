@@ -332,14 +332,16 @@ do
     check("continuous-view transform page", page, 4)
     check("continuous-view transform captured", t.z, 2)
     sample = stroke(4, nil, 20, 290, 40, 330)
-    check("cross-page stroke rejected",
-          (Transform.fromStroke(scroll_view, sample)), nil)
+    local rejected, _, block = Transform.fromStroke(scroll_view, sample)
+    check("cross-page stroke rejected", rejected, nil)
+    check("cross-page reason", block, "page_boundary")
     sample = stroke(4, nil, 20, 20, 40, 40)
     single_view.getSinglePagePosition = function(_, pos)
         return { x = pos.x, y = pos.y, page = 7, zoom = 1, rotation = 90 }
     end
-    check("rotated stroke rejected",
-          (Transform.fromStroke(single_view, sample)), nil)
+    rejected, _, block = Transform.fromStroke(single_view, sample)
+    check("rotated stroke rejected", rejected, nil)
+    check("rotated reason", block, "rotation")
 
     -- Conversion is ReaderView:getSinglePagePosition, inverted.
     local store = Store.new()
@@ -376,9 +378,11 @@ do
     store:add(3, stroke(4, T1, 0, 0, 10, 10))
     store:add(3, stroke(4, nil, 20, 20, 30, 30))
     doc = fakeDoc()
-    written, skipped = InkPdf.save({ document = doc }, store, {3})
+    local skip_reasons
+    written, skipped, skip_reasons = InkPdf.save({ document = doc }, store, {3})
     check("mappable stroke written", written, 1)
     check("unmappable stroke skipped", skipped, 1)
+    check("unmapped legacy reason", skip_reasons.legacy, 1)
     check("skipped stroke kept", #store:get(3), 1)
     check("and it is the untransformed one", store:get(3)[1].t, nil)
 
@@ -389,7 +393,8 @@ do
     local reason
     written, reason = InkPdf.save({ document = doc }, store, {2})
     check("failure reported", written, nil)
-    check("reason surfaced", reason, "MuPDF: could not write document")
+    check("actionable write reason", reason,
+          "KOReader could not save changes to this PDF. Check that the file is writable and is not damaged or password-protected, then try again.")
     check("ink still in the store", #store:get(2), 1)
     check("no cache reset on failure", doc.cache_resets, 0)
 
@@ -399,7 +404,8 @@ do
     doc = fakeDoc{ no_ink_api = true }
     written, reason = InkPdf.save({ document = doc }, store, {2})
     check("refused without the ink API", written, nil)
-    check("explains why", reason, "This KOReader build cannot write ink annotations")
+    check("explains why", reason,
+          "PDF ink export requires KOReader 2026.07 or newer. Update KOReader, restart it, then try again.")
     check("ink kept", #store:get(2), 1)
     check("nothing written", doc.writes, 0)
 
@@ -408,10 +414,12 @@ do
     store:add(1, stroke(4, T1, 0, 0, 10, 10))
     written, reason = InkPdf.save({ document = fakeDoc{ is_pdf = false } }, store, {1})
     check("epub refused", written, nil)
-    check("epub reason", reason, "Ink can only be saved into PDF documents")
+    check("epub reason", reason,
+          "PDF ink export only works with PDF files. Open a PDF, then try again.")
     written, reason = InkPdf.save({ document = fakeDoc{ writable = false } }, store, {1})
     check("read-only pdf refused", written, nil)
-    check("read-only reason", reason, "This PDF cannot be written to")
+    check("read-only reason", reason,
+          "KOReader cannot modify this PDF. Check its file permissions, or copy it to writable local storage, then try again.")
     check("ink untouched by either", #store:get(1), 1)
 
     -- Whole-document save walks every inked page, in order, writing once.

@@ -196,8 +196,10 @@ page. Reflowed and rotated pages remain unsupported.
 ]]
 function FingerInk:pageTransform(stroke)
     local doc = self.ui.document
-    if not doc.is_pdf or not self.ui.paging then return end
-    if doc.configurable and doc.configurable.text_wrap == 1 then return end
+    if not doc.is_pdf or not self.ui.paging then return nil, nil, "mapping" end
+    if doc.configurable and doc.configurable.text_wrap == 1 then
+        return nil, nil, "reflow"
+    end
 
     return Transform.fromStroke(self.view, stroke)
 end
@@ -368,7 +370,7 @@ function FingerInk:endStroke()
         self:refreshBox(s[1], s[2], s[1], s[2], s.w)
     end
     local page
-    s.t, page = self:pageTransform(s)
+    s.t, page, s.pdf_block = self:pageTransform(s)
     self.store:add(page or self:currentPage(), s)
 end
 
@@ -445,15 +447,35 @@ Hand the ink on `pages` to the PDF and say what happened.
 Strokes drawn in a view that does not map onto a page are counted as skipped
 and stay in the store, so nothing is silently lost.
 ]]
+local function skippedInkMessage(reasons)
+    local kinds, only = 0
+    for reason in pairs(reasons or {}) do
+        kinds = kinds + 1
+        only = reason
+    end
+    if kinds == 1 then
+        if only == "reflow" then
+            return _("Ink drawn while PDF reflow was enabled cannot be placed accurately. Turn off reflow, then redraw those strokes.")
+        elseif only == "rotation" then
+            return _("Ink drawn on a rotated page cannot be placed accurately. Set page rotation to 0°, then redraw those strokes.")
+        elseif only == "page_boundary" then
+            return _("A stroke crossed the gap between pages in continuous view. Redraw it without crossing the page boundary.")
+        elseif only == "legacy" then
+            return _("This ink has no saved page-position data, usually because it was drawn with an older Finger Ink version. Update the plugin, then redraw those strokes.")
+        end
+    end
+    return _("Some ink could not be mapped safely to a PDF page. Use normal page view with reflow and rotation off, then redraw the skipped strokes without crossing a page boundary.")
+end
+
 function FingerInk:saveInk(pages)
-    local written, skipped = InkPdf.save(self.ui, self.store, pages)
+    local written, skipped, reasons = InkPdf.save(self.ui, self.store, pages)
     if written == nil then
         self:notify(skipped)   -- on failure the second value is the reason
         return
     end
     if written == 0 then
         self:notify(skipped > 0
-            and _("This ink cannot be placed on a page, nothing saved")
+            and skippedInkMessage(reasons)
             or _("No ink to save"))
         return
     end
@@ -461,7 +483,8 @@ function FingerInk:saveInk(pages)
     -- The ink is drawn by MuPDF now, so the whole page has to come back.
     self:repaint("full")
     self:notify(skipped > 0
-        and T(_("Saved %1 strokes into the PDF, %2 skipped"), written, skipped)
+        and T(_("Saved %1 strokes into the PDF; %2 skipped. %3"),
+              written, skipped, skippedInkMessage(reasons))
         or T(_("Saved %1 strokes into the PDF"), written))
 end
 

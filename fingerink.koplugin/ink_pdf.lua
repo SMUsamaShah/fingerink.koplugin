@@ -20,16 +20,17 @@ local InkPdf = {}
 -- Black, matching the ink the plugin paints on screen.
 local INK_RGB = { r = 0, g = 0, b = 0 }
 local OPACITY = 1.0
+local OLD_BUILD = _("PDF ink export requires KOReader 2026.07 or newer. Update KOReader, restart it, then try again.")
 
 --- Why ink cannot be written into this document, or nil if it can.
 function InkPdf.blocker(ui)
     local doc = ui and ui.document
     if not doc or not doc.is_pdf then
-        return _("Ink can only be saved into PDF documents")
+        return _("PDF ink export only works with PDF files. Open a PDF, then try again.")
     end
     -- Caches after the first call, so this is cheap enough for a menu.
     if doc:_checkIfWritable() ~= true then
-        return _("This PDF cannot be written to")
+        return _("KOReader cannot modify this PDF. Check its file permissions, or copy it to writable local storage, then try again.")
     end
 end
 
@@ -63,12 +64,14 @@ A page of handwriting is one or two buckets, so this writes a couple of
 annotation objects per page instead of one per stroke.
 ]]
 local function bucketByWidth(list)
-    local widths, buckets, skipped = {}, {}, 0
+    local widths, buckets, skipped, reasons = {}, {}, 0, {}
     for i = 1, #list do
         local s = list[i]
         local pts = toPagePoints(s)
         if not pts then
             skipped = skipped + 1
+            local reason = s.pdf_block or "legacy"
+            reasons[reason] = (reasons[reason] or 0) + 1
         else
             -- Rounded, so strokes drawn at fractionally different zoom levels
             -- still share a bucket instead of each getting its own annotation.
@@ -82,7 +85,7 @@ local function bucketByWidth(list)
             bucket[#bucket + 1] = pts
         end
     end
-    return widths, buckets, skipped
+    return widths, buckets, skipped, reasons
 end
 
 --- Add one page's ink to the in-memory document. Returns written, skipped.
@@ -90,13 +93,13 @@ local function addPage(doc, store, page)
     local list = store:get(page)
     if not list or #list == 0 then return 0, 0 end
 
-    local widths, buckets, skipped = bucketByWidth(list)
-    if #widths == 0 then return 0, skipped end
+    local widths, buckets, skipped, reasons = bucketByWidth(list)
+    if #widths == 0 then return 0, skipped, reasons end
 
     local pg = doc._document:openPage(page)
     if not pg.addInkAnnotation then
         pg:close()
-        error(_("This KOReader build cannot write ink annotations"), 0)
+        error(OLD_BUILD, 0)
     end
     for i = 1, #widths do
         local w = widths[i]
@@ -104,7 +107,7 @@ local function addPage(doc, store, page)
     end
     pg:close()
 
-    return #list - skipped, skipped
+    return #list - skipped, skipped, reasons
 end
 
 --- Forget strokes that are now in the PDF, so paintTo stops drawing them on
@@ -132,14 +135,17 @@ function InkPdf.save(ui, store, pages)
     if blocked then return nil, blocked end
 
     local doc = ui.document
-    local written, skipped, saved_pages = 0, 0, {}
+    local written, skipped, saved_pages, reasons = 0, 0, {}, {}
 
     local ok, err = pcall(function()
         for i = 1, #pages do
-            local n, s = addPage(doc, store, pages[i])
+            local n, s, page_reasons = addPage(doc, store, pages[i])
             if n > 0 then saved_pages[#saved_pages + 1] = pages[i] end
             written = written + n
             skipped = skipped + s
+            for reason, count in pairs(page_reasons or {}) do
+                reasons[reason] = (reasons[reason] or 0) + count
+            end
         end
         -- Same filename, so MuPDF appends an incremental update rather than
         -- rewriting the whole file.
@@ -148,7 +154,10 @@ function InkPdf.save(ui, store, pages)
 
     if not ok then
         logger.warn("FingerInk: could not write ink into", doc.file, "-", err)
-        return nil, type(err) == "string" and err or _("Could not write to the PDF")
+        if err == OLD_BUILD then
+            return nil, err
+        end
+        return nil, _("KOReader could not save changes to this PDF. Check that the file is writable and is not damaged or password-protected, then try again.")
     end
 
     for i = 1, #saved_pages do
@@ -158,7 +167,7 @@ function InkPdf.save(ui, store, pages)
         -- The ink is part of the page now; the rendered tiles are stale.
         doc:resetTileCacheValidity()
     end
-    return written, skipped
+    return written, skipped, reasons
 end
 
 return InkPdf

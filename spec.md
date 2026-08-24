@@ -118,7 +118,8 @@ once from screen dimensions.
 ## Stroke data
 
 ```lua
-stroke = { n = <point count>, w = <pen width px>, t = <transform>, x1, y1, ... }
+stroke = { n = <point count>, w = <pen width px>, t = <transform>,
+           pdf_block = <reason code>, x1, y1, ... }
 transform = { z = <zoom>, x = <offset>, y = <offset> }   -- or absent
 ```
 
@@ -147,7 +148,10 @@ the view may have been zoomed or panned since the stroke was drawn.
 `pageTransform` returns nil, and `t` is absent, for strokes whose coordinates do
 not map safely onto one PDF page: reflowable documents, reflowed PDFs, rotated
 pages, and strokes crossing a page gap. Continuous view is mapped through
-`ReaderView:getScrollPagePosition`.
+`ReaderView:getScrollPagePosition`. `pdf_block` records the reason (`reflow`,
+`rotation`, `page_boundary`, or `mapping`) so the UI can give an actionable
+message. A stroke with neither `t` nor `pdf_block` predates this metadata and is
+reported as legacy ink.
 
 ## Rendering
 
