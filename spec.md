@@ -144,9 +144,10 @@ page_y = (screen_y + t.y) / t.z    -- t.z = state.zoom
 Recording it per stroke rather than reading the live view state at save time is
 what makes whole-document export correct: zoom and offset differ per page, and
 the view may have been zoomed or panned since the stroke was drawn.
-`pageTransform` returns nil, and `t` is absent, for views whose coordinates do
-not map onto a PDF page at all: reflowable documents, reflowed PDFs, scroll
-mode, and rotated pages.
+`pageTransform` returns nil, and `t` is absent, for strokes whose coordinates do
+not map safely onto one PDF page: reflowable documents, reflowed PDFs, rotated
+pages, and strokes crossing a page gap. Continuous view is mapped through
+`ReaderView:getScrollPagePosition`.
 
 ## Rendering
 

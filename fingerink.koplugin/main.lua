@@ -23,6 +23,7 @@ local InkBar = require("ink_bar")
 local InkPdf = require("ink_pdf")
 local Render = require("ink_render")
 local Store = require("ink_store")
+local Transform = require("ink_transform")
 
 local Screen = Device.screen
 local INK = Blitbuffer.COLOR_BLACK
@@ -181,28 +182,24 @@ function FingerInk:currentPage()
 end
 
 --[[--
-The screen-to-page mapping in force right now, or nil if this view has none.
+The screen-to-page mapping for `stroke`, plus the page it belongs to, or nil if
+the stroke cannot be mapped safely.
 
-`page = (screen + t) / t.z`, the inverse of ReaderView:getSinglePagePosition.
+`page = (screen + t) / t.z`, derived from ReaderView's position helpers.
 Recorded with every stroke so that ink can be turned into PDF page coordinates
 later on — whatever the view has been zoomed or panned to since, and for pages
 other than the one on screen, whose zoom and offset differ. See ADR-11.
 
-nil for the views whose coordinates do not map back to a PDF page at all:
-reflowable documents, reflowed PDFs, scroll mode and rotated pages.
+In continuous view, every point is checked because a stroke may cross a page
+gap. Such a stroke is left unsaved rather than split or placed on the wrong
+page. Reflowed and rotated pages remain unsupported.
 ]]
-function FingerInk:pageTransform()
+function FingerInk:pageTransform(stroke)
     local doc = self.ui.document
     if not doc.is_pdf or not self.ui.paging then return end
-    if self.view.page_scroll then return end
     if doc.configurable and doc.configurable.text_wrap == 1 then return end
 
-    local state = self.view.state
-    if state.rotation ~= 0 then return end
-
-    local area, offset = self.view.visible_area, state.offset
-    if not area or not offset then return end
-    return { z = state.zoom, x = area.x - offset.x, y = area.y - offset.y }
+    return Transform.fromStroke(self.view, stroke)
 end
 
 function FingerInk:setDrawing(on)
@@ -370,8 +367,9 @@ function FingerInk:endStroke()
         Render.stroke(Screen.bb, s, 0, 0, INK)
         self:refreshBox(s[1], s[2], s[1], s[2], s.w)
     end
-    s.t = self:pageTransform()
-    self.store:add(self:currentPage(), s)
+    local page
+    s.t, page = self:pageTransform(s)
+    self.store:add(page or self:currentPage(), s)
 end
 
 function FingerInk:abortStroke()

@@ -258,6 +258,7 @@ section("PDF ink annotations (ADR-11)")
 do
     local Store = require("ink_store")
     local InkPdf = require("ink_pdf")
+    local Transform = require("ink_transform")
 
     --- A stroke as the plugin stores it: flat pairs, plus n, w and the
     --- view transform captured at endStroke.
@@ -301,6 +302,44 @@ do
     end
 
     local T1 = { z = 2, x = -30, y = -10 }   -- page = (screen + t) / 2
+
+    -- Capture mappings through KOReader's real single/continuous-view API
+    -- shape. Continuous view used to be rejected unconditionally.
+    local sample = stroke(4, nil, 130, 110, 230, 210)
+    local single_view = {
+        getSinglePagePosition = function(_, pos)
+            return { x = (pos.x - 30) / 2, y = (pos.y - 10) / 2,
+                     page = 7, zoom = 2, rotation = 0 }
+        end,
+    }
+    local t, page = Transform.fromStroke(single_view, sample)
+    check("single-page transform page", page, 7)
+    check("single-page transform x", t.x, -30)
+    check("single-page transform y", t.y, -10)
+
+    local scroll_view = {
+        page_scroll = true,
+        getScrollPagePosition = function(_, pos)
+            if pos.y >= 300 and pos.y < 320 then return end -- page gap
+            local p = pos.y < 300 and 4 or 5
+            local y = p == 4 and pos.y or pos.y - 320
+            return { x = pos.x / 2, y = y / 2, page = p,
+                     zoom = 2, rotation = 0 }
+        end,
+    }
+    sample = stroke(4, nil, 20, 20, 40, 40)
+    t, page = Transform.fromStroke(scroll_view, sample)
+    check("continuous-view transform page", page, 4)
+    check("continuous-view transform captured", t.z, 2)
+    sample = stroke(4, nil, 20, 290, 40, 330)
+    check("cross-page stroke rejected",
+          (Transform.fromStroke(scroll_view, sample)), nil)
+    sample = stroke(4, nil, 20, 20, 40, 40)
+    single_view.getSinglePagePosition = function(_, pos)
+        return { x = pos.x, y = pos.y, page = 7, zoom = 1, rotation = 90 }
+    end
+    check("rotated stroke rejected",
+          (Transform.fromStroke(single_view, sample)), nil)
 
     -- Conversion is ReaderView:getSinglePagePosition, inverted.
     local store = Store.new()

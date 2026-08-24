@@ -56,9 +56,9 @@ This is one way. Saved ink becomes an ordinary annotation and is no longer the
 plugin's, so Undo and the eraser cannot touch it; remove it in a PDF editor
 instead. The whole-document action asks first.
 
-Strokes drawn in a view that has no mapping back onto the page — scroll mode, a
-reflowed PDF, a rotated page — are reported as skipped and left in the sidecar
-rather than being placed in the wrong spot.
+Strokes drawn in a view that has no safe mapping back onto one page — a
+reflowed PDF, a rotated page, or across a page gap — are reported as skipped and
+left in the sidecar rather than being placed in the wrong spot.
 
 ## Menu and gestures
 

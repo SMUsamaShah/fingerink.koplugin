@@ -222,8 +222,9 @@ state only works for the page on screen, at the zoom it was drawn at. So every
 stroke now records the mapping in force when it was drawn, as `s.t = {z, x, y}`
 with `page = (screen + t) / t.z`. Whole-document export then converts each page
 correctly even though zoom and offset differ per page. `FingerInk:pageTransform`
-returns nil for the views that have no page mapping at all (reflowable
-documents, reflowed PDFs, scroll mode, rotated pages); those strokes are counted
+uses KOReader's single-page or continuous-view position helper and returns nil
+when a stroke cannot map safely onto one page (reflowable documents, reflowed
+PDFs, rotated pages, or a stroke crossing a page gap); those strokes are counted
 as skipped and left alone rather than being placed wrongly.
 
 *Writing immediately.* `ReaderUI:closeDocument` discards pending document edits
