@@ -1,6 +1,15 @@
 # Finger Ink
 
-https://github.com/user-attachments/assets/66a1f825-9707-4755-bf09-310789dac2b5
+https://github.com/user-attachments/assets/c9c4f543-999a-47e8-8ae3-d14274997e5f
+
+<details>
+<summary>(FFMPEG commands that compressed this video 35MB -> 3MB)</summary>
+
+```
+ffmpeg -y -i input.mp4 -c:v libx264 -b:v 600k -pass 1 -an -f null NUL
+ffmpeg -i input.mp4 -c:v libx264 -b:v 600k -pass 2 -c:a aac -b:a 128k output.mp4
+```
+</details>
 
 Draw handwritten notes on KOReader pages with your finger. Designed for touch
 e-readers without a stylus, including Kindle Paperwhite.
