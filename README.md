@@ -1,5 +1,8 @@
 # Finger Ink
 
+Draw handwritten notes on KOReader pages with your finger. Designed for touch
+e-readers without a stylus, including Kindle Paperwhite.
+
 https://github.com/user-attachments/assets/c9c4f543-999a-47e8-8ae3-d14274997e5f
 
 <details>
@@ -10,9 +13,6 @@ ffmpeg -y -i input.mp4 -c:v libx264 -b:v 600k -pass 1 -an -f null NUL
 ffmpeg -i input.mp4 -c:v libx264 -b:v 600k -pass 2 -c:a aac -b:a 128k output.mp4
 ```
 </details>
-
-Draw handwritten notes on KOReader pages with your finger. Designed for touch
-e-readers without a stylus, including Kindle Paperwhite.
 
 Your ink is saved per page in KOReader's sidecar data, where it can be undone
 or erased. For PDFs, you can optionally export the ink as native PDF
