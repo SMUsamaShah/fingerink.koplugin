@@ -1,0 +1,40 @@
+name: Package plugin release
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out released source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.release.tag_name }}
+
+      - name: Build plugin archive
+        id: package
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          set -euo pipefail
+          version="${RELEASE_TAG#v}"
+          archive="fingerink-${version}.zip"
+          zip -qr "$archive" fingerink.koplugin
+          echo "archive=$archive" >> "$GITHUB_OUTPUT"
+
+      - name: Upload archive to release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          ARCHIVE: ${{ steps.package.outputs.archive }}
+        run: |
+          set -euo pipefail
+          gh release upload "$RELEASE_TAG" "$ARCHIVE" \
+            --repo "$GITHUB_REPOSITORY" \
+            --clobber
