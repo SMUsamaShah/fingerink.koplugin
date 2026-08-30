@@ -18,6 +18,7 @@ local Device = require("device")
 local Event = require("ui/event")
 local FrameContainer = require("ui/widget/container/framecontainer")
 local Geom = require("ui/geometry")
+local MovableContainer = require("ui/widget/container/movablecontainer")
 local Size = require("ui/size")
 local UIManager = require("ui/uimanager")
 local VerticalGroup = require("ui/widget/verticalgroup")
@@ -25,6 +26,22 @@ local WidgetContainer = require("ui/widget/container/widgetcontainer")
 local _ = require("gettext")
 
 local Screen = Device.screen
+
+local TEXT_WIDTH_RATIO = 0.13
+local TEXT_FONT_SIZE = 16
+local ICON_SIZE = Screen:scaleBySize(24)
+local ICON_BUTTON_WIDTH = Screen:scaleBySize(36)
+
+-- These are all part of KOReader's built-in mdlight icon set, so the plugin
+-- does not need to ship or install any image assets of its own.
+local ICONS = {
+    draw = "edit",
+    stop = "close",
+    pen = "appbar.tools",
+    eraser = "cancel",
+    undo = "back.top",
+    hide = "exit",
+}
 
 -- Handlers for events that arrive through UIManager:sendEvent, which offers
 -- them to one window only. Everything else reaches every window already.
@@ -38,36 +55,73 @@ local INPUT_HANDLERS = {
 local InkBar = WidgetContainer:extend{
     plugin = nil,   -- the FingerInk instance
     side = "right",
+    style = "text",
+    position = nil,
 }
 
-function InkBar:mkButton(text, width, cb)
-    return Button:new{
-        text = text,
+-- Keep the toolbar's outer widget stable, and report the resulting absolute
+-- position back to FingerInk after every completed move.
+local MovableBar = MovableContainer:extend{}
+
+function MovableBar:_moveBy(dx, dy, restrict_to_screen)
+    MovableContainer._moveBy(self, dx, dy, restrict_to_screen)
+    if self.on_move then
+        self.on_move(self)
+    end
+end
+
+function InkBar:mkButton(text, icon, width, cb)
+    local button = {
         width = width,
         radius = Size.radius.button,
         show_parent = self,
         callback = cb,
+        -- Let a hold bubble up to MovableBar. Taps are still handled by the
+        -- Button itself, while a long-press on any part of the panel moves it.
+        readonly = true,
+        padding = Size.padding.small,
     }
+    if self.style == "icons" then
+        button.icon = icon
+        button.icon_width = ICON_SIZE
+        button.icon_height = ICON_SIZE
+    else
+        button.text = text
+        button.text_font_face = "smallinfofont"
+        button.text_font_size = TEXT_FONT_SIZE
+        button.text_font_bold = false
+    end
+    return Button:new(button)
 end
 
 function InkBar:init()
     local p = self.plugin
-    local w = math.floor(Screen:getWidth() * 0.15)
+    self.style = self.style == "icons" and "icons" or "text"
+    local w = self.style == "icons"
+        and ICON_BUTTON_WIDTH
+        or math.floor(Screen:getWidth() * TEXT_WIDTH_RATIO)
 
-    self.draw_btn = self:mkButton(_("Draw"), w, function()
+    self.button_width = w
+    self.draw_btn = self:mkButton(
+        p.drawing and _("Stop") or _("Draw"),
+        p.drawing and ICONS.stop or ICONS.draw,
+        w, function()
         p:setDrawing(not p.drawing)
     end)
-    self.tool_btn = self:mkButton(_("Pen"), w, function()
+    self.tool_btn = self:mkButton(
+        p.eraser and _("Eraser") or _("Pen"),
+        p.eraser and ICONS.eraser or ICONS.pen,
+        w, function()
         p:setEraser(not p.eraser)
     end)
-    self.undo_btn = self:mkButton(_("Undo"), w, function()
+    self.undo_btn = self:mkButton(_("Undo"), ICONS.undo, w, function()
         p:onFingerInkUndo()
     end)
-    self.hide_btn = self:mkButton(_("Hide"), w, function()
+    self.hide_btn = self:mkButton(_("Hide"), ICONS.hide, w, function()
         p:setBarShown(false)
     end)
 
-    self[1] = FrameContainer:new{
+    local frame = FrameContainer:new{
         background = Blitbuffer.COLOR_WHITE,
         bordersize = Size.border.window,
         radius = Size.radius.window,
@@ -82,17 +136,75 @@ function InkBar:init()
         },
     }
 
-    local size = self[1]:getSize()
+    local size = frame:getSize()
     local pad = Size.padding.large
-    local x = (self.side == "left") and pad
+    local default_x = (self.side == "left") and pad
         or (Screen:getWidth() - size.w - pad)
+    local default_y = math.floor((Screen:getHeight() - size.h) / 2)
+
     self.dimen = Geom:new{
-        x = x,
-        y = math.floor((Screen:getHeight() - size.h) / 2),
+        x = default_x,
+        y = default_y,
         w = size.w,
         h = size.h,
     }
+
+    local x, y = default_x, default_y
+    if self.position and type(self.position.x) == "number"
+       and type(self.position.y) == "number" then
+        x, y = self:clampPosition(self.position.x, self.position.y)
+    end
+
+    self.movable = MovableBar:new{
+        frame,
+        dimen = Geom:new{
+            x = default_x,
+            y = default_y,
+            w = size.w,
+            h = size.h,
+        },
+        on_move = function(movable)
+            -- _moveBy updates the offset before this callback, while dimen's
+            -- x/y are refreshed on the following paint pass.
+            local moved_x = (movable._orig_x or default_x)
+                + movable._moved_offset_x
+            local moved_y = (movable._orig_y or default_y)
+                + movable._moved_offset_y
+            local clamped_x, clamped_y = self:clampPosition(moved_x, moved_y)
+            if clamped_x ~= moved_x or clamped_y ~= moved_y then
+                movable:setMovedOffset(Geom:new{
+                    x = clamped_x - default_x,
+                    y = clamped_y - default_y,
+                })
+            end
+            p:setBarPosition(clamped_x, clamped_y)
+        end,
+    }
+    self.movable:setMovedOffset(Geom:new{ x = x - default_x, y = y - default_y })
+    self[1] = self.movable
+
     self:update(false)
+end
+
+function InkBar:clampPosition(x, y)
+    local max_x = math.max(0, Screen:getWidth() - self.dimen.w)
+    local max_y = math.max(0, Screen:getHeight() - self.dimen.h)
+    if x < 0 then x = 0 elseif x > max_x then x = max_x end
+    if y < 0 then y = 0 elseif y > max_y then y = max_y end
+    return x, y
+end
+
+function InkBar:getVisibleDimen()
+    if not self.movable then return self.dimen end
+    local d = self.movable.dimen
+    -- MovableContainer updates dimen during paint, but its offset changes
+    -- during the gesture event itself. Keep hit testing correct in that small
+    -- interval too (and before the first paint of a restored position).
+    d.x = (self.movable._orig_x or self.dimen.x)
+        + (self.movable._moved_offset_x or 0)
+    d.y = (self.movable._orig_y or self.dimen.y)
+        + (self.movable._moved_offset_y or 0)
+    return d
 end
 
 function InkBar:getSize()
@@ -100,21 +212,36 @@ function InkBar:getSize()
 end
 
 function InkBar:paintTo(bb, x, y)
-    self[1]:paintTo(bb, self.dimen.x, self.dimen.y)
+    -- Keep the outer widget at its original position. MovableBar applies its
+    -- saved offset while painting and exposes the actual hit-test rectangle.
+    self.movable:paintTo(bb, self.dimen.x, self.dimen.y)
 end
 
---- Relabel the two stateful buttons. Pass true to also repaint.
+--- Relabel or re-icon the two stateful buttons. Pass true to also repaint.
 function InkBar:update(refresh)
     local p = self.plugin
-    self.draw_btn:setText(p.drawing and _("Stop") or _("Draw"), self.draw_btn.width)
-    self.tool_btn:setText(p.eraser and _("Eraser") or _("Pen"), self.tool_btn.width)
+    if self.style == "icons" then
+        self.draw_btn:setIcon(
+            p.drawing and ICONS.stop or ICONS.draw,
+            self.button_width)
+        self.tool_btn:setIcon(
+            p.eraser and ICONS.eraser or ICONS.pen,
+            self.button_width)
+    else
+        self.draw_btn:setText(
+            p.drawing and _("Stop") or _("Draw"),
+            self.button_width)
+        self.tool_btn:setText(
+            p.eraser and _("Eraser") or _("Pen"),
+            self.button_width)
+    end
     if refresh then
-        UIManager:setDirty(self, "ui", self.dimen)
+        UIManager:setDirty(self, "ui", self:getVisibleDimen())
     end
 end
 
 function InkBar:contains(x, y)
-    local d = self.dimen
+    local d = self:getVisibleDimen()
     return x >= d.x and x < d.x + d.w and y >= d.y and y < d.y + d.h
 end
 

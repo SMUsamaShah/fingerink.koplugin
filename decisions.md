@@ -114,11 +114,17 @@ bar; hiding the bar turns drawing off.
 **Consequences.**
 
 - The visuals are KOReader's — no hand-painted rects, no guessing at icon names
-  or glyph coverage in the Kindle font stack. Text labels for the same reason.
+  or glyph coverage in the Kindle font stack. The later icon mode uses only
+  KOReader's own built-in icons for the same reason.
 - No hook is needed while drawing is off. The bar is an ordinary widget then and
   gets taps the ordinary way, so requirement 4 survives intact.
-- The bar occupies ~15% of screen width. It is hideable, and side-switchable for
-  left-handers.
+- The bar is compact by default: smaller, non-bold text and tighter padding.
+  An icon-only style makes it narrower still, using KOReader's own built-in
+  icons rather than shipping image assets.
+- A long-press followed by a drag moves the bar anywhere within the screen's
+  bounds. Its position is persisted and clamped again after rotation or resize.
+- It is hideable, and side-switchable for left-handers. The side controls the
+  initial position until the user moves the bar.
 - A stroke dragged onto the bar is truncated at the edge rather than drawn under
   it. `draw_slot = SUSPENDED` parks the contact until lift so it cannot resume
   in the middle of a line.
@@ -127,7 +133,8 @@ bar; hiding the bar turns drawing off.
 
 Rejected: hand-painting the toolbar into `Screen.bb` inside `paintTo` and
 hit-testing it ourselves. Fewer moving parts on paper, but it means owning text
-rendering, pressed states and refresh regions — more code, worse looking.
+and icon rendering, pressed states and refresh regions — more code, worse
+looking.
 
 ## ADR-9 — "Start drawing" closes the menu
 
@@ -269,8 +276,6 @@ into hundreds of writes.
 - Segment-distance eraser (ADR-7).
 - Layout-change detection for EPUBs (ADR-5).
 - Save-on-stroke instead of `onSaveSettings`, if crash loss turns out to matter.
-- Draggable toolbar (`MovableContainer`) if the fixed centred position gets in
-  the way of a particular book's layout.
 - Repainting ink through `s.t` rather than in raw screen pixels, which would fix
   ADR-5's zoom problem for PDFs now that the transform is stored anyway.
 - Colour and per-stroke opacity for saved ink; `addInkAnnotation` takes both,

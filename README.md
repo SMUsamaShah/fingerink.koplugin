@@ -57,6 +57,10 @@ Use **Start drawing** to enable the toolbar.
 - **Undo** — remove the last stroke on the current page
 - **Hide** — stop drawing and hide the toolbar
 
+The toolbar uses compact text buttons by default. In **Finger Ink → Toolbar
+style**, choose **Icons** for an even narrower toolbar. Long-press anywhere on
+the toolbar and drag it to a more convenient place; its position is remembered.
+
 One finger draws. Two-finger gestures continue to work normally.
 
 ## Export ink into a PDF

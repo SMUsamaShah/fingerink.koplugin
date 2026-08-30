@@ -61,8 +61,10 @@ convenience, not the exit route — the toolbar is.
 
 `ink_bar.lua` is a plain KOReader widget (`FrameContainer` > `VerticalGroup` >
 four `Button`s) shown via `UIManager:show`, so it sits above ReaderUI in the
-widget stack and receives taps before anything else. Its position is fixed:
-vertically centred, `Size.padding.large` in from the chosen edge.
+widget stack and receives taps before anything else. It uses compact text
+buttons by default, with an icon-only mode available. The button stack is
+wrapped in a `MovableContainer`, so a long-press followed by a drag moves it
+around the screen.
 
 Buttons, top to bottom:
 
@@ -76,6 +78,10 @@ Buttons, top to bottom:
 `InkBar:update(refresh)` relabels buttons 1 and 2 from plugin state. Called
 from every path that changes `drawing` or `eraser`.
 
+Text mode uses the small info font at 16 logical pixels and small button
+padding. Icon mode uses KOReader's built-in `edit`, `appbar.tools`, `cancel`,
+`back.top`, `close`, and `exit` icons, so no plugin image assets are needed.
+
 ### Reachability
 
 Four rules together guarantee the bar is always usable, and that having it up
@@ -83,8 +89,9 @@ never costs the reader its own input:
 
 1. `setDrawing(true)` shows the bar first if it is hidden.
 2. `setBarShown(false)` calls `setDrawing(false)` first.
-3. A contact whose **first** point falls inside `bar.dimen` latches
-   `passthrough`, so GestureDetector produces the tap and the Button fires.
+3. A contact whose **first** point falls inside the bar's current visible
+   rectangle latches `passthrough`, so GestureDetector produces the tap and the
+   Button fires.
 4. `InkBar:handleEvent` forwards input the bar did not want to
    `self:windowBelow()`, the topmost non-toast window that is not the bar.
 
@@ -112,8 +119,9 @@ A stroke that starts off the bar and is **dragged onto** it is ended at the
 edge and the contact is parked at `draw_slot = SUSPENDED` (-1) until it lifts,
 so ink is never painted over the buttons and never resumes mid-drag.
 
-Rotation and `onScreenResize` rebuild the bar, since its position is computed
-once from screen dimensions.
+Rotation and `onScreenResize` rebuild the bar. The last moved position is
+stored in global settings and clamped to the new screen dimensions when the
+bar is rebuilt.
 
 ## Stroke data
 
@@ -178,6 +186,9 @@ an unerasable middle. Accepted for v1.
 `onSaveSettings` writes `pages` to `doc_settings`, or deletes the key when
 empty. No write on every stroke.
 
+The toolbar style and last position are stored in global reader settings, so
+they apply to the toolbar across documents and sessions.
+
 ## Saving into PDF
 
 `ink_pdf.lua` turns stored strokes into native PDF ink annotations
@@ -224,6 +235,7 @@ Top menu → Finger Ink:
   open menu is unusable once single-finger taps are being swallowed)
 - Show toolbar (toggle, default on, persisted)
 - Toolbar side: left / right
+- Toolbar style: text / icons
 - Pen width: thin (2) / medium (4) / thick (7)
 - Fast refresh while drawing (toggle, default on)
 - Save this page into PDF
