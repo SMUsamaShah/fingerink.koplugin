@@ -59,6 +59,68 @@ package.preload["ui/widget/container/widgetcontainer"] = function()
     return WidgetContainer
 end
 
+-- The real MovableContainer delegates drawing to its child and keeps its
+-- current rectangle in `dimen`. This small stand-in is enough to exercise the
+-- toolbar's hold-and-drag behavior without a running KOReader.
+package.preload["ui/widget/container/movablecontainer"] = function()
+    local WidgetContainer = require("ui/widget/container/widgetcontainer")
+    local MovableContainer = WidgetContainer:extend{}
+
+    function MovableContainer:init()
+        self._moved_offset_x = self._moved_offset_x or 0
+        self._moved_offset_y = self._moved_offset_y or 0
+    end
+
+    function MovableContainer:setMovedOffset(offset)
+        self._moved_offset_x = offset.x
+        self._moved_offset_y = offset.y
+    end
+
+    function MovableContainer:getMovedOffset()
+        return { x = self._moved_offset_x, y = self._moved_offset_y }
+    end
+
+    function MovableContainer:paintTo(_, x, y)
+        self._orig_x = x
+        self._orig_y = y
+        self.dimen.x = x + self._moved_offset_x
+        self.dimen.y = y + self._moved_offset_y
+    end
+
+    function MovableContainer:_moveBy(dx, dy)
+        if dx and dy then
+            self._moved_offset_x = self._moved_offset_x + dx
+            self._moved_offset_y = self._moved_offset_y + dy
+        else
+            self._moved_offset_x = 0
+            self._moved_offset_y = 0
+        end
+        self.dimen.x = (self._orig_x or self.dimen.x) + self._moved_offset_x
+        self.dimen.y = (self._orig_y or self.dimen.y) + self._moved_offset_y
+    end
+
+    function MovableContainer:onGesture(ges)
+        local d = self.dimen
+        local inside = ges.pos and ges.pos.x >= d.x and ges.pos.x < d.x + d.w
+            and ges.pos.y >= d.y and ges.pos.y < d.y + d.h
+        if ges.ges == "hold" and inside then
+            self._moving = true
+            self._move_start_x = ges.pos.x
+            self._move_start_y = ges.pos.y
+            return true
+        elseif ges.ges == "hold_pan" and self._moving then
+            return true
+        elseif ges.ges == "hold_release" and self._moving then
+            self:_moveBy(ges.pos.x - self._move_start_x,
+                         ges.pos.y - self._move_start_y)
+            self._moving = false
+            return true
+        end
+    end
+
+    return MovableContainer
+end
+
 package.preload["ui/event"] = function()
     local Event = {}
     function Event:new(handler, ...)
@@ -76,12 +138,25 @@ package.preload["ui/widget/button"] = function()
     local Button = WidgetContainer:extend{}
     function Button:init() self.dimen = self.dimen or { x = 0, y = 0, w = 0, h = 0 } end
     function Button:setText(text) self.text = text end
-    function Button:getSize() return { w = self.width, h = 60 } end
+    function Button:setIcon(icon, width)
+        self.icon = icon
+        self.width = width
+        self.text = nil
+    end
+    function Button:getSize()
+        return { w = self.width, h = self.icon and self.icon_height or 30 }
+    end
     function Button:onGesture(ges)
         local d = self.dimen
-        if ges.pos and ges.pos.x >= d.x and ges.pos.x < d.x + d.w
+        if ges.ges == "tap" and ges.pos
+           and ges.pos.x >= d.x and ges.pos.x < d.x + d.w
            and ges.pos.y >= d.y and ges.pos.y < d.y + d.h then
             self.callback()
+            return true
+        end
+        if self.readonly then return end
+        if ges.pos and ges.pos.x >= d.x and ges.pos.x < d.x + d.w
+           and ges.pos.y >= d.y and ges.pos.y < d.y + d.h then
             return true
         end
     end
@@ -91,12 +166,28 @@ end
 package.preload["ui/widget/container/framecontainer"] = function()
     local WidgetContainer = require("ui/widget/container/widgetcontainer")
     local FrameContainer = WidgetContainer:extend{}
-    function FrameContainer:getSize() return { w = 160, h = 260 } end
+    function FrameContainer:getSize()
+        local child = self[1]
+        local size = child and child.getSize and child:getSize()
+            or { w = 0, h = 0 }
+        local extra = 2 * ((self.padding or 0) + (self.bordersize or 0))
+        return { w = size.w + extra, h = size.h + extra }
+    end
     return FrameContainer
 end
 
 package.preload["ui/widget/verticalgroup"] = function()
-    return require("ui/widget/container/widgetcontainer"):extend{}
+    local VerticalGroup = require("ui/widget/container/widgetcontainer"):extend{}
+    function VerticalGroup:getSize()
+        local width, height = 0, 0
+        for _, child in ipairs(self) do
+            local size = child:getSize()
+            width = math.max(width, size.w)
+            height = height + size.h
+        end
+        return { w = width, h = height }
+    end
+    return VerticalGroup
 end
 
 package.preload["ui/uimanager"] = function()
@@ -121,7 +212,8 @@ end
 
 package.preload["device"] = function()
     return { screen = { getWidth = function() return 1000 end,
-                        getHeight = function() return 1400 end } }
+                        getHeight = function() return 1400 end,
+                        scaleBySize = function(_, size) return size end } }
 end
 
 package.preload["ui/size"] = function()
@@ -185,14 +277,25 @@ do
     function plugin:setEraser() log[#log+1] = "plugin:eraser" end
     function plugin:onFingerInkUndo() log[#log+1] = "plugin:undo" end
     function plugin:setBarShown() log[#log+1] = "plugin:hide" end
+    function plugin:setBarPosition(x, y) self.bar_position = { x = x, y = y } end
 
     local bar = InkBar:new{ plugin = plugin }
     local d = bar.dimen
     local by = d.y
     for _, b in ipairs({ bar.draw_btn, bar.tool_btn, bar.undo_btn, bar.hide_btn }) do
-        b.dimen = { x = d.x, y = by, w = d.w, h = 60 }
-        by = by + 60
+        local h = b:getSize().h
+        b.dimen = { x = d.x, y = by, w = d.w, h = h }
+        by = by + h
     end
+
+    check("text toolbar uses smaller font", bar.draw_btn.text_font_size, 16)
+    check("text toolbar is not bold", tostring(bar.draw_btn.text_font_bold), "false")
+
+    local icon_bar = InkBar:new{ plugin = plugin, style = "icons" }
+    check("icon toolbar selects icon style", icon_bar.style, "icons")
+    check("icon toolbar has no text label", icon_bar.draw_btn.text, nil)
+    check("icon toolbar uses the draw icon", icon_bar.draw_btn.icon, "edit")
+    check("icon toolbar is narrower", tostring(icon_bar.dimen.w < bar.dimen.w), "true")
 
     local reader, menu, toast = Reader:new{}, Menu:new{}, Toast:new{}
 
@@ -217,7 +320,8 @@ do
     end
 
     UIManager._window_stack = { { widget = reader }, { widget = bar } }
-    check("tap on Undo runs its callback", tap(d.x + 5, d.y + 125), "plugin:undo")
+    check("tap on Undo runs its callback", tap(bar.undo_btn.dimen.x + 5,
+                                                bar.undo_btn.dimen.y + 5), "plugin:undo")
     check("tap on the page reaches the reader", tap(10, 10), "reader:gesture")
     check("tap on the bar's border is swallowed", tap(d.x + 5, d.y + d.h - 5), "")
 
@@ -233,6 +337,21 @@ do
     log = {}
     bar:handleEvent(Event:new("KeyPress", "RPgFwd"))
     check("keypresses forward to the reader", table.concat(log, ","), "reader:key")
+
+    -- A hold is intentionally allowed to bubble through the buttons to the
+    -- MovableContainer. The release commits the new position.
+    local start_x, start_y = d.x + 5, d.y + 5
+    bar:handleEvent(Event:new("Gesture", {
+        ges = "hold", pos = { x = start_x, y = start_y },
+    }))
+    bar:handleEvent(Event:new("Gesture", {
+        ges = "hold_release", pos = { x = start_x + 80, y = start_y + 90 },
+    }))
+    local expected_x = math.min(d.x + 80, 1000 - d.w)
+    local expected_y = math.min(d.y + 90, 1400 - d.h)
+    check("long press moves toolbar", bar:contains(start_x + 80, start_y + 90), true)
+    check("moved position is persisted", plugin.bar_position.x, expected_x)
+    check("moved y position is persisted", plugin.bar_position.y, expected_y)
 
     log = {}
     bar:handleEvent(Event:new("Suspend"))

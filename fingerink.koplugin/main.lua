@@ -47,6 +47,9 @@ function FingerInk:init()
     self.pen_width = G_reader_settings:readSetting("fingerink_pen_width") or PEN_MEDIUM
     self.live_fast = G_reader_settings:readSetting("fingerink_live_fast") ~= false
     self.bar_side = G_reader_settings:readSetting("fingerink_bar_side") or "right"
+    self.bar_style = G_reader_settings:readSetting("fingerink_bar_style") == "icons"
+        and "icons" or "text"
+    self.bar_position = G_reader_settings:readSetting("fingerink_bar_position")
 
     self.contacts = {}
     self.n_contacts = 0
@@ -113,7 +116,7 @@ function FingerInk:onSaveSettings()
     end
 end
 
---- Rotation and resize invalidate the bar's fixed position; rebuild it.
+--- Rotation and resize invalidate the bar's layout; rebuild it.
 function FingerInk:rebuildBar()
     if not self.bar then return end
     UIManager:close(self.bar)
@@ -137,13 +140,18 @@ function FingerInk:setBarShown(on)
 
     if on then
         if self.bar then return end
-        self.bar = InkBar:new{ plugin = self, side = self.bar_side }
+        self.bar = InkBar:new{
+            plugin = self,
+            side = self.bar_side,
+            style = self.bar_style,
+            position = self.bar_position,
+        }
         UIManager:show(self.bar, "ui", self.bar.dimen)
     else
         -- Invariant: drawing is never on without a way to turn it off.
         self:setDrawing(false)
         if not self.bar then return end
-        local dimen = self.bar.dimen
+        local dimen = self.bar:getVisibleDimen()
         UIManager:close(self.bar)
         self.bar = nil
         UIManager:setDirty(self.ui, "ui", dimen)
@@ -493,6 +501,18 @@ function FingerInk:setPenWidth(w)
     G_reader_settings:saveSetting("fingerink_pen_width", w)
 end
 
+function FingerInk:setBarStyle(style)
+    self.bar_style = style == "icons" and "icons" or "text"
+    G_reader_settings:saveSetting("fingerink_bar_style", self.bar_style)
+    self:rebuildBar()
+end
+
+function FingerInk:setBarPosition(x, y)
+    if not x or not y then return end
+    self.bar_position = { x = x, y = y }
+    G_reader_settings:saveSetting("fingerink_bar_position", self.bar_position)
+end
+
 function FingerInk:penItem(text, w)
     return {
         text = text,
@@ -511,7 +531,23 @@ function FingerInk:sideItem(text, side)
             if self.bar_side == side then return end
             self.bar_side = side
             G_reader_settings:saveSetting("fingerink_bar_side", side)
+            -- An explicit side selection starts the bar at that edge again;
+            -- a later long-press drag can establish a new custom position.
+            self.bar_position = nil
+            G_reader_settings:delSetting("fingerink_bar_position")
             self:rebuildBar()
+        end,
+    }
+end
+
+function FingerInk:styleItem(text, style)
+    return {
+        text = text,
+        checked_func = function() return self.bar_style == style end,
+        radio = true,
+        callback = function()
+            if self.bar_style == style then return end
+            self:setBarStyle(style)
         end,
     }
 end
@@ -544,6 +580,13 @@ function FingerInk:addToMainMenu(menu_items)
                 sub_item_table = {
                     self:sideItem(_("Left"), "left"),
                     self:sideItem(_("Right"), "right"),
+                },
+            },
+            {
+                text = _("Toolbar style"),
+                sub_item_table = {
+                    self:styleItem(_("Text"), "text"),
+                    self:styleItem(_("Icons"), "icons"),
                 },
             },
             {
