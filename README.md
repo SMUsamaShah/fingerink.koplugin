@@ -28,7 +28,19 @@ those strokes.
 
 ## Install
 
-Copy `fingerink.koplugin` into KOReader's `plugins` directory:
+### AppStore or Storefront
+
+Finger Ink is structured for KOReader's AppStore and Storefront plugins. Find
+**Finger Ink** in the store and install it, then restart KOReader. The store can
+compare the stable GitHub release with the version in `_meta.lua` and offer
+future updates.
+
+### Manual installation
+
+Download `fingerink.koplugin.zip` from the
+[latest release](https://github.com/SMUsamaShah/fingerink.koplugin/releases/latest),
+extract it, and copy the resulting `fingerink.koplugin` directory into
+KOReader's `plugins` directory:
 
 ```sh
 scp -r fingerink.koplugin root@<kindle>:/mnt/us/koreader/plugins/
@@ -41,6 +53,16 @@ koreader/plugins/fingerink.koplugin/main.lua
 ```
 
 Restart KOReader after installing.
+
+## KOReader setup
+
+No gesture setup is required. You do not need to assign or disable KOReader's
+long-press gesture.
+
+If Finger Ink is disabled in KOReader's plugin manager, enable it and restart
+KOReader. Then open a document and use **Top menu → More tools → Finger Ink**.
+The optional `Finger Ink: ...` actions exposed to KOReader's gesture manager
+are shortcuts only; the plugin works without assigning any of them.
 
 ## Use
 
@@ -90,3 +112,10 @@ Those strokes remain in the sidecar and the plugin explains what to correct.
 - `spec.md` — implementation details
 - `decisions.md` — design decisions
 - `requirements.md` — original requirements
+
+## Releases
+
+Every version change merged to `main` is tested and packaged automatically as
+a stable GitHub release. The release ZIP contains only the installable
+`fingerink.koplugin` directory; repository documentation and development files
+remain outside it.

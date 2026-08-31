@@ -1,0 +1,35 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install test tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y lua5.1 zip unzip
+      - name: Test
+        run: lua5.1 test.lua
+      - name: Verify release package
+        run: |
+          metadata_version=$(sed -n 's/^[[:space:]]*version[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' \
+            fingerink.koplugin/_meta.lua)
+          test "$metadata_version" = "$(tr -d '\r\n' < VERSION)"
+          ./scripts/package.sh
+          unzip -t dist/fingerink.koplugin.zip
+          diff -u <(printf '%s\n' \
+            fingerink.koplugin/ \
+            fingerink.koplugin/_meta.lua \
+            fingerink.koplugin/ink_bar.lua \
+            fingerink.koplugin/ink_capture.lua \
+            fingerink.koplugin/ink_pdf.lua \
+            fingerink.koplugin/ink_render.lua \
+            fingerink.koplugin/ink_store.lua \
+            fingerink.koplugin/ink_transform.lua \
+            fingerink.koplugin/main.lua) \
+            <(unzip -Z1 dist/fingerink.koplugin.zip | sort)
