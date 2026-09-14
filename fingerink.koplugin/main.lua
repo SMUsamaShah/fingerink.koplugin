@@ -17,6 +17,7 @@ local WidgetContainer = require("ui/widget/container/widgetcontainer")
 local logger = require("logger")
 local _ = require("gettext")
 local T = require("ffi/util").template
+local plugin_dir = debug.getinfo(1, "S").source:match("^@(.*/)") or "./"
 
 local Capture = require("ink_capture")
 local InkBar = require("ink_bar")
@@ -36,6 +37,12 @@ local SUSPENDED = -1   -- draw_slot sentinel: ignore this contact until it lifts
 local FingerInk = WidgetContainer:extend{
     name = "fingerink",
     is_doc_only = true,
+}
+
+local updater = dofile(plugin_dir .. "pluginupdater.lua").new{
+    repository = "SMUsamaShah/fingerink.koplugin",
+    branch = "main",
+    folder = "fingerink.koplugin",
 }
 
 -- ---------------------------------------------------------------- lifecycle
@@ -666,6 +673,7 @@ function FingerInk:addToMainMenu(menu_items)
                     })
                 end,
             },
+            updater:menuItem(),
         },
     }
 end
