@@ -31,5 +31,6 @@ jobs:
             fingerink.koplugin/ink_render.lua \
             fingerink.koplugin/ink_store.lua \
             fingerink.koplugin/ink_transform.lua \
-            fingerink.koplugin/main.lua) \
+            fingerink.koplugin/main.lua \
+            fingerink.koplugin/pluginupdater.lua)\
             <(unzip -Z1 dist/fingerink.koplugin.zip | sort)
